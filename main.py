@@ -6,13 +6,6 @@ from openai import OpenAI
 # OpenAIクライアント（Streamlit Secrets）
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# テキスト読み込み
-with open("hashimoto_transcript_raw.txt", "r", encoding="utf-8") as f:
-    transcript_raw = f.read()
-
-with open("hashimoto_transcript_cleaned.txt", "r", encoding="utf-8") as f:
-    transcript_cleaned = f.read()
-
 # 差分ログ生成
 def extract_diff_log(original, cleaned):
     diff = list(difflib.ndiff(original.split(), cleaned.split()))
@@ -24,7 +17,7 @@ def extract_diff_log(original, cleaned):
 
 # タグ生成
 def generate_tags(text):
-    prompt = f"以下の文章にふさわしいタグを3?5個、日本語で出力してください：\n\n{text}"
+    prompt = f"以下の文章にふさわしいタグを3～5個、日本語で出力してください：\n\n{text}"
     res = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
