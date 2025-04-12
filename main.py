@@ -1,42 +1,19 @@
-# streamlit_cleaning_demo_v2.py
-
 import streamlit as st
 import difflib
 import pandas as pd
 from openai import OpenAI
-from html import escape
 
-# OpenAIクライアント（secretsから取得）
+# OpenAIクライアント（Streamlit Secrets）
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# 整形ルール辞書
-replace_dict = {
-    "剣士": "犬種",
-    "甘棒": "甘えん坊",
-    "天子": "犬種",
-    "しけも": "しつけも",
-    "個人さ": "個体差",
-    "買い やすい": "買いやすい",
-    "お 伝え": "お伝え",
-    "お 出かけ": "お出かけ",
-    "地は": "チワワ"
-}
+# テキスト読み込み
+with open("hashimoto_transcript_raw.txt", "r", encoding="utf-8") as f:
+    transcript_raw = f.read()
 
-# 整形関数
-def simple_clean(text, replacements):
-    for wrong, right in replacements.items():
-        text = text.replace(wrong, right)
-    return text.strip()
+with open("hashimoto_transcript_cleaned.txt", "r", encoding="utf-8") as f:
+    transcript_cleaned = f.read()
 
-# 差分HTML表示（単語単位）
-def html_diff(a, b):
-    differ = difflib.HtmlDiff(tabsize=2, wrapcolumn=80)
-    return differ.make_table(a.split(), b.split(),
-                             fromdesc="整形前（話し言葉）",
-                             todesc="整形後（整った言葉）",
-                             context=True, numlines=1)
-
-# 差分ログ生成（表）
+# 差分ログ生成
 def extract_diff_log(original, cleaned):
     diff = list(difflib.ndiff(original.split(), cleaned.split()))
     corrections = []
@@ -46,12 +23,12 @@ def extract_diff_log(original, cleaned):
     return pd.DataFrame(corrections, columns=["元の言葉", "修正後の言葉"])
 
 # タグ生成
-def generate_tags(text, role):
-    prompt = f"以下の文章にふさわしいタグを3〜5個、日本語で出力してください：\n\n{text}"
+def generate_tags(text):
+    prompt = f"以下の文章にふさわしいタグを3?5個、日本語で出力してください：\n\n{text}"
     res = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", "content": role},
+            {"role": "system", "content": "あなたはSEOに強い編集者です。"},
             {"role": "user", "content": prompt}
         ],
         temperature=0.4,
@@ -61,7 +38,7 @@ def generate_tags(text, role):
 
 # 構成案生成
 def generate_outline(text):
-    prompt = f"以下の内容を3〜5つの見出しでセクション構成に分けてください：\n\n{text}"
+    prompt = f"以下の内容を3?5つの見出しでセクション構成に分けてください：\n\n{text}"
     res = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -73,45 +50,48 @@ def generate_outline(text):
     )
     return res.choices[0].message.content.strip()
 
-# --- UI ---
-st.title("🧹 話し言葉 → 整形 × AI出力比較 × 差分表示")
+# UI
+st.title("  橋本さんの整形デモ：話し言葉 vs 整えた言葉")
 
-user_input = st.text_area("🎤 話し言葉（文字起こしなど）を貼ってください", height=200,
-    value="この剣士は甘棒で人なつっこい天子です。")
+col1, col2 = st.columns(2)
+with col1:
+    st.subheader("  整形前の話し言葉")
+    st.text_area("整形前", transcript_raw, height=300)
 
-if st.button("🚀 整形して比較！"):
-    with st.spinner("整形中＆AI処理中..."):
+with col2:
+    st.subheader("  整形後の文章")
+    st.text_area("整形後", transcript_cleaned, height=300)
 
-        cleaned = simple_clean(user_input, replace_dict)
-        diff_log = extract_diff_log(user_input, cleaned)
+if st.button("  ChatGPTでタグ・構成を比較！"):
+    with st.spinner("AI処理中..."):
+        tags_raw = generate_tags(transcript_raw)
+        tags_clean = generate_tags(transcript_cleaned)
+        outline_raw = generate_outline(transcript_raw)
+        outline_clean = generate_outline(transcript_cleaned)
 
-        # AI出力
-        tags_before = generate_tags(user_input, "あなたはSEOに強い編集者です。")
-        tags_after = generate_tags(cleaned, "あなたはSEOに強い編集者です。")
+    st.markdown("##   タグの比較")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("### 整形前")
+        st.code(tags_raw)
+    with c2:
+        st.markdown("### 整形後")
+        st.code(tags_clean)
 
-        outline_before = generate_outline(user_input)
-        outline_after = generate_outline(cleaned)
+    st.markdown("##   構成案の比較")
+    c3, c4 = st.columns(2)
+    with c3:
+        st.markdown("### 整形前")
+        st.markdown(outline_raw)
+    with c4:
+        st.markdown("### 整形後")
+        st.markdown(outline_clean)
 
-        # 差分HTML生成
-        diff_html = html_diff(user_input, cleaned)
+st.markdown("##   整形ログ（どこがどう変わったか）")
+diff_df = extract_diff_log(transcript_raw, transcript_cleaned)
+st.dataframe(diff_df)
 
-    # 出力エリア
-    st.subheader("📝 整形ログ（差分表）")
-    st.dataframe(diff_log)
-
-    st.subheader("🌈 差分ハイライト表示")
-    st.components.v1.html(diff_html, height=250, scrolling=True)
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("### 🔸 整形前のタグ")
-        st.code(tags_before)
-        st.markdown("### 🪜 整形前の構成案")
-        st.markdown(outline_before)
-
-    with col2:
-        st.markdown("### 🔹 整形後のタグ")
-        st.code(tags_after)
-        st.markdown("### 🧱 整形後の構成案")
-        st.markdown(outline_after)
+st.markdown("##   差分ハイライト表示（HTML）")
+with open("橋本さん_diff.html", "r", encoding="utf-8") as f:
+    diff_html = f.read()
+st.components.v1.html(diff_html, height=300, scrolling=True)
