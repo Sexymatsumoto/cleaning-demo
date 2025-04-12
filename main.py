@@ -6,6 +6,12 @@ from openai import OpenAI
 # OpenAIクライアント（Streamlit Secrets）
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
+# 整形ルール辞書ベースのクリーン関数
+def simple_clean(text: str, replacements: dict) -> str:
+    for wrong, right in replacements.items():
+        text = text.replace(wrong, right)
+    return text.strip()
+
 # 差分ログ生成
 def extract_diff_log(original, cleaned):
     diff = list(difflib.ndiff(original.split(), cleaned.split()))
