@@ -3,9 +3,6 @@ import difflib
 import pandas as pd
 from openai import OpenAI
 
-# OpenAIクライアント（Streamlit Secrets）
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-
 # 整形ルール辞書ベースのクリーン関数
 def simple_clean(text: str, replacements: dict) -> str:
     for wrong, right in replacements.items():
@@ -23,7 +20,7 @@ def extract_diff_log(original, cleaned):
 
 # タグ生成
 def generate_tags(text):
-    prompt = f"以下の文章にふさわしいタグを3～5個、日本語で出力してください：\n\n{text}"
+    prompt = f"以下の文章にふさわしいタグを3?5個、日本語で出力してください：\n\n{text}"
     res = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -49,28 +46,41 @@ def generate_outline(text):
     )
     return res.choices[0].message.content.strip()
 
-st.title("🧹 話し言葉 整形体験アプリ（自由入力OK）")
+# OpenAIクライアント（Streamlit Secrets）
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+
+# Streamlit UI
+st.title("  話し言葉 整形体験アプリ（整形確認付き）")
 
 # ユーザー入力欄
-user_input = st.text_area("🎤 あなたの話し言葉（文字起こしなど）を貼り付けてください", height=300,
+user_input = st.text_area("  あなたの話し言葉（文字起こし）を入力してください", height=300,
                           placeholder="例：この剣士は甘棒で人なつっこい天子です。")
 
-if st.button("🚀 整形してAIにかける"):
+replace_dict = {
+    "剣士": "犬種", "甘棒": "甘えん坊", "天子": "犬種", "しけも": "しつけも",
+    "個人さ": "個体差", "買い やすい": "買いやすい", "お 伝え": "お伝え",
+    "お 出かけ": "お出かけ", "地は": "チワワ"
+}
+
+if st.button("  整形してAIにかける"):
     if not user_input.strip():
-        st.warning("何か入力してください。")
+        st.warning("? 入力が空です。文字起こしを貼り付けてください。")
     else:
         # 整形処理
         transcript_raw = user_input
-        transcript_cleaned = simple_clean(transcript_raw, {
-            "剣士": "犬種", "甘棒": "甘えん坊", "天子": "犬種", "しけも": "しつけも",
-            "個人さ": "個体差", "買い やすい": "買いやすい", "お 伝え": "お伝え",
-            "お 出かけ": "お出かけ", "地は": "チワワ"
-        })
+        transcript_cleaned = simple_clean(transcript_raw, replace_dict)
+
+        st.markdown("###   整形前後の一部（確認用）")
+        st.code("整形前：\n" + transcript_raw[:100])
+        st.code("整形後：\n" + transcript_cleaned[:100])
 
         # 差分ログ表示
-        st.markdown("## 📊 整形ログ")
+        st.markdown("##   整形ログ")
         diff_df = extract_diff_log(transcript_raw, transcript_cleaned)
-        st.dataframe(diff_df)
+        if diff_df.empty:
+            st.warning("? 整形ログが空です。置換される対象がない可能性があります。")
+        else:
+            st.dataframe(diff_df)
 
         # ChatGPT出力
         with st.spinner("ChatGPTでタグ・構成を処理中..."):
@@ -82,19 +92,19 @@ if st.button("🚀 整形してAIにかける"):
         # 比較表示
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader("📝 整形前のタグ")
+            st.subheader("  整形前のタグ")
             st.code(tags_raw)
-            st.subheader("🧱 整形前の構成案")
+            st.subheader("  整形前の構成案")
             st.markdown(outline_raw)
 
         with col2:
-            st.subheader("📝 整形後のタグ")
+            st.subheader("  整形後のタグ")
             st.code(tags_clean)
-            st.subheader("🧱 整形後の構成案")
+            st.subheader("  整形後の構成案")
             st.markdown(outline_clean)
 
         # 差分HTML表示
-        st.markdown("## 🌈 差分ハイライト")
+        st.markdown("##   差分ハイライト")
         diff_html = difflib.HtmlDiff().make_table(
             transcript_raw.split(), transcript_cleaned.split(),
             fromdesc="整形前", todesc="整形後", context=True, numlines=2
