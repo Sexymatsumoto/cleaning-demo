@@ -1,11 +1,12 @@
-# streamlit_cleaning_demo.py
+# streamlit_cleaning_demo_v2.py
 
 import streamlit as st
 import difflib
 import pandas as pd
 from openai import OpenAI
+from html import escape
 
-# OpenAIクライアント（secretsで設定）
+# OpenAIクライアント（secretsから取得）
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # 整形ルール辞書
@@ -22,12 +23,20 @@ replace_dict = {
 }
 
 # 整形関数
-def simple_clean(text: str, replacements: dict) -> str:
+def simple_clean(text, replacements):
     for wrong, right in replacements.items():
         text = text.replace(wrong, right)
     return text.strip()
 
-# 差分抽出
+# 差分HTML表示（単語単位）
+def html_diff(a, b):
+    differ = difflib.HtmlDiff(tabsize=2, wrapcolumn=80)
+    return differ.make_table(a.split(), b.split(),
+                             fromdesc="整形前（話し言葉）",
+                             todesc="整形後（整った言葉）",
+                             context=True, numlines=1)
+
+# 差分ログ生成（表）
 def extract_diff_log(original, cleaned):
     diff = list(difflib.ndiff(original.split(), cleaned.split()))
     corrections = []
@@ -36,47 +45,73 @@ def extract_diff_log(original, cleaned):
             corrections.append((diff[i][2:], diff[i + 1][2:]))
     return pd.DataFrame(corrections, columns=["元の言葉", "修正後の言葉"])
 
-# GPTで要約生成
-def generate_summary(text):
-    prompt = f"以下の文章を100文字以内で要約してください：\n\n{text}"
+# タグ生成
+def generate_tags(text, role):
+    prompt = f"以下の文章にふさわしいタグを3〜5個、日本語で出力してください：\n\n{text}"
     res = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", "content": "あなたはプロの編集者です。"},
+            {"role": "system", "content": role},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.3,
-        max_tokens=100
+        temperature=0.4,
+        max_tokens=150
     )
     return res.choices[0].message.content.strip()
 
-# --- Streamlit UI ---
-st.title("🧹 話し言葉 整形デモアプリ（整形前後のAI出力比較＋差分表示）")
+# 構成案生成
+def generate_outline(text):
+    prompt = f"以下の内容を3〜5つの見出しでセクション構成に分けてください：\n\n{text}"
+    res = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "あなたは優秀な構成ライターです。"},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.4,
+        max_tokens=200
+    )
+    return res.choices[0].message.content.strip()
 
-default_input = "この剣士は甘棒で人なつっこい天子です。"
-user_input = st.text_area("🎤 話し言葉を入力してください", value=default_input, height=200)
+# --- UI ---
+st.title("🧹 話し言葉 → 整形 × AI出力比較 × 差分表示")
 
-if st.button("🚀 整形前後で比較する"):
-    with st.spinner("処理中..."):
+user_input = st.text_area("🎤 話し言葉（文字起こしなど）を貼ってください", height=200,
+    value="この剣士は甘棒で人なつっこい天子です。")
 
-        # 整形処理
+if st.button("🚀 整形して比較！"):
+    with st.spinner("整形中＆AI処理中..."):
+
         cleaned = simple_clean(user_input, replace_dict)
+        diff_log = extract_diff_log(user_input, cleaned)
 
-        # AIに要約依頼（整形前）
-        summary_before = generate_summary(user_input)
+        # AI出力
+        tags_before = generate_tags(user_input, "あなたはSEOに強い編集者です。")
+        tags_after = generate_tags(cleaned, "あなたはSEOに強い編集者です。")
 
-        # AIに要約依頼（整形後）
-        summary_after = generate_summary(cleaned)
+        outline_before = generate_outline(user_input)
+        outline_after = generate_outline(cleaned)
 
-        # 差分ログ作成
-        diff_df = extract_diff_log(user_input, cleaned)
+        # 差分HTML生成
+        diff_html = html_diff(user_input, cleaned)
 
-    st.subheader("✨ 整形前の要約（話し言葉のまま）")
-    st.write(summary_before)
+    # 出力エリア
+    st.subheader("📝 整形ログ（差分表）")
+    st.dataframe(diff_log)
 
-    st.subheader("🪄 整形後の要約（整った言葉）")
-    st.write(summary_after)
+    st.subheader("🌈 差分ハイライト表示")
+    st.components.v1.html(diff_html, height=250, scrolling=True)
 
-    st.subheader("📝 整形ログ（どこがどう直されたか）")
-    st.dataframe(diff_df)
+    col1, col2 = st.columns(2)
 
+    with col1:
+        st.markdown("### 🔸 整形前のタグ")
+        st.code(tags_before)
+        st.markdown("### 🪜 整形前の構成案")
+        st.markdown(outline_before)
+
+    with col2:
+        st.markdown("### 🔹 整形後のタグ")
+        st.code(tags_after)
+        st.markdown("### 🧱 整形後の構成案")
+        st.markdown(outline_after)
